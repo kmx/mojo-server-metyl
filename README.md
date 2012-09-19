@@ -36,3 +36,7 @@ todo
    the first free worker takes all sockets currently available in 
    the queue.
 
+3. Veeery slow when used without keep-alive (bechmark by sri @ dualcore macbook):
+   * with keep-alive: hypnotoad at 1800 rps, metyl at 1100 rps, daemon at 1000 rps
+   * without keep-alive: hypnotoad at 1100 rps, metyl at 50 rps, daemon at 800 rps
+
