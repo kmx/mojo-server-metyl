@@ -1,0 +1,169 @@
+#!/usr/bin/env perl
+
+use threads;
+use threads::shared;
+
+use 5.012;
+use warnings;
+
+use Socket qw(IPPROTO_TCP TCP_NODELAY);
+use IO::Select;
+use IO::Socket::INET;
+use Thread::Queue::Duplex;
+use Time::HiRes 'time';
+use Time::Piece 'localtime';
+use Getopt::Long;
+use IO::Socket::SSL; # to be thread-safe has to loaded in the main thread
+
+### global variables
+
+my $addr = 'localhost';
+my $port =  3000;
+my $workers = 4;
+
+### functions
+
+sub thread_dispatcher {
+  my ($TQ_handles, $TQ_logs) = @_;
+  my %clients;
+  my $accept_count = 0;
+  my $tick_count = 0;
+
+  #create selector
+  my $read_selector = IO::Select->new();
+
+  #open listen socket
+  my $listener = IO::Socket::INET->new(
+                        LocalAddr=>$addr,
+                        LocalPort=>$port,
+                        Proto=>'tcp',
+                        Listen=>SOMAXCONN,
+                        Reuse=>1,
+                        Type=> SOCK_STREAM,
+                 );
+  die "FATAL: Can't start listening: $!" unless $listener;
+  $listener->blocking(0);
+  $read_selector->add($listener);
+
+  $TQ_handles->wait_for_listener();
+  $TQ_logs->wait_for_listener();
+
+  $TQ_logs->enqueue(threads->tid, "Info", "entering dispatcher loop, listening at '$addr:$port'");
+  while (1) {
+    $tick_count++;
+
+    # do blocking select with reasonable timeout
+    my ($re) = IO::Select->select($read_selector, undef, undef, 3); # 3 sec timeout is fine here
+    my @ready = defined $re ? @$re : ();
+
+    #handle accepted sockets
+    for my $s (@ready) {
+      my $fd = $s->accept();
+      next unless $fd;
+      $accept_count++;
+      #BEWARE: passing socket is not thread-safe therefore pass only fileno to other thread
+      my $resp_id = $TQ_handles->enqueue('newfd', time, $fd->fileno); #non-blocking
+      $clients{$resp_id} = $fd;
+      #cannot close the socket here as we need to be sure that worker thread has taken it over
+    }
+
+    # get all available ids from TQ_handles queue
+    my @available = $TQ_handles->available;
+    @available = () unless defined($available[0]); # because if none available: @qa = (undef);
+
+    # handle responses from TQ_handles (response means that corresponding socket can be closed on dispatcher side)
+    for my $id (@available) {
+      my $response = $TQ_handles->dequeue_response($id);
+      my $fd = delete $clients{$id};
+      $fd->close if defined $fd;
+    }
+
+    # collect and print some debug info
+    my $ar = scalar(@ready);
+    my $qa = scalar(@available);
+    my $qp = $TQ_handles->pending;
+    warn "DEBUG[",localtime->hms,"]: dispatcher: q.pending=$qp; q.ready=$qa; acc.ready=$ar acc.count=$accept_count\n" if $tick_count % 10 == 0;
+  }
+}
+
+sub thread_logger {
+  my ($TQ_logs) = @_;
+  $TQ_logs->listen();
+  while (1) {
+    my ($id, $tid, $type, $msg) = @{$TQ_logs->dequeue()};
+    $msg =~ s/[\n\r]*$//;
+    print STDERR sprintf("#ID=%03d:TID=%03d# %s: %s\n", $id, $tid, $type, $msg);
+  }
+}
+
+sub thread_worker {
+  my ($wid, $TQ_handles, $TQ_logs, $mojo_app_path) = @_;
+  my $tid = threads->tid();
+
+  $TQ_logs->wait_for_listener();
+  $TQ_handles->listen();
+
+  $ENV{MOJO_REACTOR} = 'Mojo::Reactor::Poll'; # prevent Mojo::Reactor::EV as it is not thread-safe
+  require Mojo::Server::Daemon;
+  my $mojosrv = Mojo::Server::Daemon->new;
+  $mojosrv->silent(1);
+  $mojosrv->load_app($mojo_app_path);
+
+  $mojosrv->ioloop->recurring(0.5 =>
+        sub {
+          while (my $dq = $TQ_handles->dequeue_nb) { # NON-BLOCKING get socket from TQ_handles queue
+            #XXX-FIXME: we are taking over all available handle from TQ_handles queue
+            #XXX-FIXME: which is not too clever, better load balancing needed
+            my ($id, $cmd, $timestamp, $fn) = @$dq;
+            my $socket = IO::Socket::INET->new_from_fd($fn, '+>');
+            $TQ_handles->respond($id, 'handle taken'); # now we can tell dispatcher that we taken the socket
+            if ($socket) {
+              $socket->blocking(0);
+              setsockopt($socket, IPPROTO_TCP, TCP_NODELAY, 1);
+
+              #XXX-HACK-BEGIN: this was ripped with help of sri from Mojo::Server::Daemon::_listen
+              my $id = $mojosrv->ioloop->stream(my $stream = Mojo::IOLoop::Stream->new($socket));
+              # Add new connection
+              my $c = $mojosrv->{connections}{$id} = { tls=>{} };
+              $stream->timeout($mojosrv->inactivity_timeout);
+              # Events
+              $stream->on(close  =>sub { $mojosrv->_close($id) });
+              $stream->on(error  =>sub { return unless $mojosrv; $mojosrv->app->log->error(pop); $mojosrv->_close($id)});
+              $stream->on(read   =>sub { $mojosrv->_read($id => pop) });
+              $stream->on(timeout=>sub { $mojosrv->app->log->debug('Inactivity timeout.') if $c->{tx} });
+              #XXX-HACK-END:
+            }
+          }
+        }
+  );
+
+  $TQ_logs->enqueue(threads->tid, "Info", "worker[$wid] entering mojo loop");
+  $mojosrv->run;
+  $TQ_logs->enqueue(threads->tid, "Info", "worker[$wid] quitting");
+}
+
+### main
+
+GetOptions( 'a|address=s' => \$addr, 'p|port=n' => \$port );
+die <<"EOF" if !(my $mojo_app_path = shift);
+usage: $0 [OPTIONS] [APPLICATION]
+
+  metyl script/myapp
+  metyl myapp.pl
+  metyl -a 127.0.0.1 -p 80 myapp.pl
+
+These options are available:
+  -a, --address <ip>  Set IP adress you want to listen on (default: localhost)
+  -p, --port <num>    Set port number you want to listen on (default: 30000)
+  -w, --workers <num> Set number of worker threads (default: 4)
+EOF
+
+my $TQ_handles = Thread::Queue::Duplex->new(ListenerRequired => 1, MaxPending => 10000);
+my $TQ_logs    = Thread::Queue::Duplex->new(ListenerRequired => 1, MaxPending => 100);
+
+my $TH_dispatcher = threads->new(\&thread_dispatcher, $TQ_handles, $TQ_logs);
+my $TH_logger     = threads->new(\&thread_logger, $TQ_logs);
+threads->new(\&thread_worker, $_-1, $TQ_handles, $TQ_logs, $mojo_app_path)->detach for (1..$workers);
+
+$TH_dispatcher->join;
+die "FATAL: We should never reach this point!";
