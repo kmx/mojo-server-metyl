@@ -82,7 +82,8 @@ sub thread_dispatcher {
     my $ar = scalar(@ready);
     my $qa = scalar(@available);
     my $qp = $TQ_handles->pending;
-    warn "DEBUG[",localtime->hms,"]: dispatcher: q.pending=$qp; q.ready=$qa; acc.ready=$ar acc.count=$accept_count\n" if $tick_count % 10 == 0;
+    my $tm = localtime->hms;
+    warn "DEBUG[$tm]: q.pending=$qp; q.ready=$qa; acc.ready=$ar acc.count=$accept_count\n" if $tick_count % 10 == 0;
   }
 }
 
@@ -154,7 +155,7 @@ usage: $0 [OPTIONS] [APPLICATION]
 
 These options are available:
   -a, --address <ip>  Set IP adress you want to listen on (default: localhost)
-  -p, --port <num>    Set port number you want to listen on (default: 30000)
+  -p, --port <num>    Set port number you want to listen on (default: 3000)
   -w, --workers <num> Set number of worker threads (default: 4)
 EOF
 
