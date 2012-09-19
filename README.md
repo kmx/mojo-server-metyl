@@ -29,9 +29,9 @@ todo
 
 1. Hooking up threading vehicle to mojo's ioloop via event handler
    _Mojo::Reactor::recurring(0.5 => {...})_ is a bit suboptimal, 
-   perhaps having _Mojo::Reactor::idle_ can help 
+   perhaps having _Mojo::Reactor::idle_ can help.
 
-2. There is no loadbalacning when assingning accepted sockets to 
+2. There is no loadbalacning when assigning accepted sockets to 
    worker threads. Even worse the used algorithm is a bit stupid as
    the first free worker takes all sockets currently available in 
    the queue.
