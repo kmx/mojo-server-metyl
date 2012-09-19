@@ -106,14 +106,13 @@ sub thread_worker {
 
   $ENV{MOJO_REACTOR} = 'Mojo::Reactor::Poll'; # prevent Mojo::Reactor::EV as it is not thread-safe
   require Mojo::Server::Daemon;
-  my $mojosrv = Mojo::Server::Daemon->new;
-  $mojosrv->silent(1);
+  my $mojosrv = Mojo::Server::Daemon->new(listen =>[]); # do not listen
   $mojosrv->load_app($mojo_app_path);
-
+  
   $mojosrv->ioloop->recurring(0.5 =>
         sub {
           while (my $dq = $TQ_handles->dequeue_nb) { # NON-BLOCKING get socket from TQ_handles queue
-            #XXX-FIXME: we are taking over all available handle from TQ_handles queue
+            #XXX-FIXME: we are taking over all available handles from TQ_handles queue
             #XXX-FIXME: which is not too clever, better load balancing needed
             my ($id, $cmd, $timestamp, $fn) = @$dq;
             my $socket = IO::Socket::INET->new_from_fd($fn, '+>');
