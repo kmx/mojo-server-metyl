@@ -108,7 +108,7 @@ sub thread_worker {
   require Mojo::Server::Daemon;
   my $mojosrv = Mojo::Server::Daemon->new(listen =>[]); # do not listen
   $mojosrv->load_app($mojo_app_path);
-
+  
   $mojosrv->ioloop->recurring(0.5 =>
         sub {
           while (my $dq = $TQ_handles->dequeue_nb) { # NON-BLOCKING get socket from TQ_handles queue
