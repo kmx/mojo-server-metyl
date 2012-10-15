@@ -6,7 +6,7 @@ Pure perl multi-threading webserver (based on ithreads) capable to run
 
 **BEWARE:** it's just a proof of concept, implemented only as a demo!
 
-**BEWARE:** it was tested with Mojolicious 3.42, however it is very likely
+**BEWARE:** it was tested with Mojolicious 3.47, however it is very likely
 that it will not work with future versions as it uses a hack into Mojolicious 
 internals (not via public API).
 
@@ -28,15 +28,6 @@ todo
 ----
 
 1. Hooking up threading vehicle to mojo's ioloop via event handler
-   _Mojo::Reactor::recurring(0.5 => {...})_ is a bit suboptimal, 
-   perhaps having _Mojo::Reactor::idle_ can help.
+   _Mojo::Reactor::recurring(0.02 => {...})_ is a bit suboptimal.
 
-2. There is no loadbalacning when assigning accepted sockets to 
-   worker threads. Even worse the used algorithm is a bit stupid as
-   the first free worker takes all sockets currently available in 
-   the queue.
-
-3. Veeery slow when used without keep-alive (bechmark by sri @ dualcore macbook):
-   * with keep-alive: hypnotoad at 1800 rps, metyl at 1100 rps, daemon at 1000 rps
-   * without keep-alive: hypnotoad at 1100 rps, metyl at 50 rps, daemon at 800 rps
-
+2. SSL enabled Mojo apps are ignored
