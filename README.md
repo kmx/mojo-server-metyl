@@ -31,3 +31,7 @@ todo
    _Mojo::Reactor::recurring(0.02 => {...})_ is a bit suboptimal.
 
 2. SSL enabled Mojo apps are ignored
+
+3. Still quite far from hypnotoad (bechmark by sri @ dualcore macbook):
+   * with keep-alive: hypnotoad at 1800 rps, metyl at 1330 rps, daemon at 1000 rps
+   * without keep-alive: hypnotoad at 1100 rps, metyl at 770 rps, daemon at 800 rps
