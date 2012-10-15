@@ -29,10 +29,14 @@ todo
 
 1. Hooking up threading vehicle to mojo's ioloop via event handler
    _Mojo::Reactor::recurring(0.5 => {...})_ is a bit suboptimal, 
-   perhaps having _Mojo::Reactor::idle_ can help 
+   perhaps having _Mojo::Reactor::idle_ can help.
 
-2. There is no loadbalacning when assingning accepted sockets to 
+2. There is no loadbalacning when assigning accepted sockets to 
    worker threads. Even worse the used algorithm is a bit stupid as
    the first free worker takes all sockets currently available in 
    the queue.
+
+3. Veeery slow when used without keep-alive (bechmark by sri @ dualcore macbook):
+   * with keep-alive: hypnotoad at 1800 rps, metyl at 1100 rps, daemon at 1000 rps
+   * without keep-alive: hypnotoad at 1100 rps, metyl at 50 rps, daemon at 800 rps
 
